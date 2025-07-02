@@ -27,6 +27,25 @@ const client = new MongoClient(uri, {
 const run = async() =>{
     try{
         await client.connect();
+
+        const db = client.db('pro-fast')
+        const parcelCollection = db.collection('parcels')
+
+
+        app.post('/parcels', async(req, res) =>{
+            const newParcel = req.body;
+            const result = await parcelCollection.insertOne(newParcel)
+            res.send(result)
+        })
+
+        app.get('/parcels', async(req,res) =>{
+            const result = await parcelCollection.find().toArray()
+            res.send(result)
+        })
+
+
+
+
         await client.db("admin").command({ ping: 1 });
         console.log('ping');
     }
