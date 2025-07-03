@@ -3,7 +3,7 @@ const app = express()
 const cors = require('cors');
 const dotenv = require('dotenv');
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
 //middleware
@@ -40,6 +40,30 @@ const run = async() =>{
 
         app.get('/parcels', async(req,res) =>{
             const result = await parcelCollection.find().toArray()
+            res.send(result)
+        })
+        app.get('/parcels/:id', async(req, res) =>{
+            const id = req.params.id;
+            const query ={_id: new ObjectId(id)}
+            const result = await parcelCollection.findOne(query)
+            res.send(result)
+        })
+
+        app.get('/parcels', async(req, res) =>{
+            const userEmail = req.query.email;
+
+            const query = userEmail? {created_by: userEmail} : {};
+            const options = {
+                sort: {creation_date: -1}
+            }
+            const parcels = await parcelCollection.find(query, options).toArray()
+            res.send(parcels)
+        })
+
+        app.delete('/parcels/:id', async(req, res) =>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)}
+            const result = await parcelCollection.deleteOne(query)
             res.send(result)
         })
 
