@@ -4,12 +4,19 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
 
 //middleware
 dotenv.config();
 app.use(cors());
 app.use(express.json());
 const stripe = require("stripe")(process.env.PAYMENT_GETAWAY_KEY);
+
+const serviceAccount = require("./firebase_admin_key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.qwhtqkb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -28,6 +35,42 @@ const run = async () => {
     const db = client.db("pro-fast");
     const parcelCollection = db.collection("parcels");
     const paymentHistoryCollection = db.collection("payments");
+    const trackingCollection = db.collection("tracking");
+    const userCollection = db.collection("users");
+
+    //custom middleware
+
+    const verifyFbToken = async (req, res, next) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      const token = authHeader.split(" ")[1];
+
+      //verify
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch (error) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+    };
+
+    //user related api's
+
+    app.post("/users", async (req, res) => {
+      const email = req.body.email;
+      const existingUser = await userCollection.findOne({ email });
+      if (existingUser) {
+        return res
+          .status(200)
+          .send({ message: "user already exist", inserted: false });
+      }
+      const newUser = req.body;
+      const result = await userCollection.insertOne(newUser);
+      res.send(result);
+    });
 
     //parcels api's
     app.post("/parcels", async (req, res) => {
@@ -36,10 +79,11 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get("/parcels", async (req, res) => {
-      const result = await parcelCollection.find().toArray();
-      res.send(result);
-    });
+    // app.get("/parcels", async (req, res) => {
+    //   const result = await parcelCollection.find().toArray();
+    //   res.send(result);
+    // });
+
     app.get("/parcels/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -47,8 +91,10 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get("/parcels", async (req, res) => {
+    app.get("/parcels", verifyFbToken, async (req, res) => {
       const userEmail = req.query.email;
+
+      console.log(req);
 
       const query = userEmail ? { created_by: userEmail } : {};
       const options = {
@@ -66,7 +112,7 @@ const run = async () => {
     });
 
     //payment api
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyFbToken, async (req, res) => {
       const amountInCents = req.body.amountInCents;
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amountInCents,
@@ -128,9 +174,13 @@ const run = async () => {
       }
     });
 
-    app.get("/payments", async (req, res) => {
+    app.get("/payments", verifyFbToken, async (req, res) => {
       try {
-        const { userEmail } = req.query;
+        const userEmail = req.query.email;
+        if (req.decoded.email !== userEmail) {
+          return res.status(403).send({message: 'forbidden access'})
+        }
+    
         const query = userEmail ? { userEmail } : {};
         const options = {
           sort: { paymentDate: -1 }, // newest first
@@ -145,6 +195,27 @@ const run = async () => {
         console.error("Payment history fetch error:", error);
         res.status(500).json({ error: "Server error" });
       }
+    });
+
+    //tracking api's
+    app.post("/tracking", async (req, res) => {
+      const {
+        tracking_id,
+        parcel_id,
+        status,
+        message,
+        updated_by = "",
+      } = req.body;
+      const log = {
+        tracking_id,
+        parcel_id: parcel_id ? new ObjectId(parcel_id) : undefined,
+        status,
+        message,
+        time: new Date(),
+        updated_by,
+      };
+      const result = await trackingCollection.insertOne(log);
+      res.send(result);
     });
 
     await client.db("admin").command({ ping: 1 });
