@@ -37,6 +37,7 @@ const run = async () => {
     const paymentHistoryCollection = db.collection("payments");
     const trackingCollection = db.collection("tracking");
     const userCollection = db.collection("users");
+    const ridersCollection = db.collection("riders");
 
     //custom middleware
 
@@ -73,7 +74,7 @@ const run = async () => {
     });
 
     //parcels api's
-    app.post("/parcels", async (req, res) => {
+    app.post("/parcels", verifyFbToken, async (req, res) => {
       const newParcel = req.body;
       const result = await parcelCollection.insertOne(newParcel);
       res.send(result);
@@ -84,7 +85,7 @@ const run = async () => {
     //   res.send(result);
     // });
 
-    app.get("/parcels/:id", async (req, res) => {
+    app.get("/parcels/:id", verifyFbToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await parcelCollection.findOne(query);
@@ -178,9 +179,9 @@ const run = async () => {
       try {
         const userEmail = req.query.email;
         if (req.decoded.email !== userEmail) {
-          return res.status(403).send({message: 'forbidden access'})
+          return res.status(403).send({ message: "forbidden access" });
         }
-    
+
         const query = userEmail ? { userEmail } : {};
         const options = {
           sort: { paymentDate: -1 }, // newest first
@@ -215,6 +216,53 @@ const run = async () => {
         updated_by,
       };
       const result = await trackingCollection.insertOne(log);
+      res.send(result);
+    });
+
+    //riders api's
+
+    app.post("/riders", async (req, res) => {
+      const rider = req.body;
+      const result = await ridersCollection.insertOne(rider);
+      res.send(result);
+    });
+
+    app.get("/riders/pending", async (req, res) => {
+      const pendingRiders = await ridersCollection
+        .find({ status: "Pending" })
+        .toArray();
+      res.send(pendingRiders);
+    });
+
+    app.patch("/riders/:id/status", async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const result = await ridersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    });
+
+    app.get("/riders/active", async (req, res) => {
+      const result = await ridersCollection
+        .find({ status: "active" })
+        .toArray();
+      res.send(result);
+    });
+
+    app.delete("/riders/:id", async (req, res) => {
+      const id = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await ridersCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    app.get("/riders/deactivated", async (req, res) => {
+      const result = await ridersCollection
+        .find({ status: "deactivate" })
+        .toArray();
       res.send(result);
     });
 
