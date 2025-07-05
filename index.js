@@ -73,6 +73,37 @@ const run = async () => {
       res.send(result);
     });
 
+    app.get('/users/search', async(req, res) =>{
+      const emailQuery = req.query.email;
+      if(!emailQuery){
+        return res.status(400).send({message:'email is missing'})
+      }
+
+      const regex = new RegExp(emailQuery, 'i') // case insensitive partial match
+      const result = await userCollection
+      .find({email: {$regex:regex}})
+      .project({email: 1, created_at:1, role: 1})
+      .limit(10)
+      .toArray()
+
+      res.send(result)
+    })
+
+    app.patch('/users/:id/role', async(req, res) =>{
+      const {id} = req.params;
+      const {role} = req.body;
+
+      // if(!['admin', 'user'].includes(role)){
+      //   return res.status(400).send({message: 'invalid role'})
+      // }
+
+      const result = await userCollection.updateOne(
+        {_id: new ObjectId(id)},
+        {$set: {role}}
+      )
+      res.send(result)
+    })
+
     //parcels api's
     app.post("/parcels", verifyFbToken, async (req, res) => {
       const newParcel = req.body;
@@ -236,12 +267,25 @@ const run = async () => {
 
     app.patch("/riders/:id/status", async (req, res) => {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, email } = req.body;
 
       const result = await ridersCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: { status } }
       );
+
+      //updating user role after accepting as rider
+      if(status === 'active'){
+        const userQuery = {email};
+        const updatedDoc = {
+          $set:{
+            role: 'rider'
+          }
+        }
+        const userResult = await userCollection.updateOne(userQuery, updatedDoc)
+        console.log(userResult.modifiedCount);
+      }
+
       res.send(result);
     });
 
