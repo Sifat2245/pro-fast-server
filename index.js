@@ -68,6 +68,16 @@ const run = async () => {
       next();
     };
 
+     const verifyRider = async (req, res, next) => {
+      const email = req.decoded.email;
+      const user = await userCollection.findOne({ email });
+
+      if (!user || user.role !== "rider") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     //user related api's
 
     app.post("/users", async (req, res) => {
@@ -341,7 +351,7 @@ const run = async () => {
       res.send(pendingRiders);
     });
 
-    app.get('/rider/parcel', async(req, res) =>{
+    app.get('/rider/parcel', verifyFbToken, verifyRider, async(req, res) =>{
         const email = req.query.email;
 
         if(!email){
@@ -419,6 +429,25 @@ const run = async () => {
       const riders = await ridersCollection.find({ district }).toArray();
       res.send(riders);
     });
+
+    app.get('/rider/completed-parcel', verifyFbToken, verifyRider, async (req, res) =>{
+      const email = req.query.email;
+      if(!email) {
+        return res.status(400).send({message: 'Riders email is required'})
+      }
+
+      const query = {
+        assigned_rider_email: email,
+        delivery_status: 'Delivered'
+      }
+
+      const options = {
+        sort :{creation_date: -1}
+      }
+
+      const result = await parcelCollection.find(query, options).toArray()
+      res.send(result)
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log("ping");
