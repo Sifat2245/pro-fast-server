@@ -58,6 +58,16 @@ const run = async () => {
       }
     };
 
+    const verifyAdmin = async(req, res, next) =>{
+       const email = req.decoded.email;
+       const user = await userCollection.findOne({email});
+
+       if(!user || user.role !== 'admin'){
+        return res.status(403).send({message: 'forbidden access'})
+       }
+       next();
+    }
+
     //user related api's
 
     app.post("/users", async (req, res) => {
@@ -73,7 +83,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get('/users/search', async(req, res) =>{
+    app.get('/users/search', verifyFbToken, async(req, res) =>{
       const emailQuery = req.query.email;
       if(!emailQuery){
         return res.status(400).send({message:'email is missing'})
@@ -89,7 +99,22 @@ const run = async () => {
       res.send(result)
     })
 
-    app.patch('/users/:id/role', async(req, res) =>{
+    app.get('/users/:email/role', verifyFbToken, async(req, res) =>{
+      const email = req.params.email;
+      if(!email){
+        return res.status(400).send({message: 'email is required'})
+      }
+
+      const user = await userCollection.findOne({email})
+      
+      if(!user){
+        return res.status(400).send({message: 'user not found'})
+      }
+
+      res.send({role: user.role || 'user'})
+    })
+
+    app.patch('/users/:id/role', verifyFbToken, verifyAdmin, async(req, res) =>{
       const {id} = req.params;
       const {role} = req.body;
 
@@ -126,7 +151,7 @@ const run = async () => {
     app.get("/parcels", verifyFbToken, async (req, res) => {
       const userEmail = req.query.email;
 
-      console.log(req);
+      // console.log(req);
 
       const query = userEmail ? { created_by: userEmail } : {};
       const options = {
@@ -135,6 +160,16 @@ const run = async () => {
       const parcels = await parcelCollection.find(query, options).toArray();
       res.send(parcels);
     });
+
+
+    app.get('/parcel/assignable', verifyFbToken, verifyAdmin, async(req, res) =>{
+      const query = {
+        payment_status: 'Paid',
+        delivery_status:'Not Collected'
+      }
+      const result = await parcelCollection.find(query).toArray()
+      res.send(result)
+    })
 
     app.delete("/parcels/:id", async (req, res) => {
       const id = req.params.id;
@@ -252,13 +287,13 @@ const run = async () => {
 
     //riders api's
 
-    app.post("/riders", async (req, res) => {
+    app.post("/riders", verifyFbToken, async (req, res) => {
       const rider = req.body;
       const result = await ridersCollection.insertOne(rider);
       res.send(result);
     });
 
-    app.get("/riders/pending", async (req, res) => {
+    app.get("/riders/pending", verifyFbToken, verifyAdmin, async (req, res) => {
       const pendingRiders = await ridersCollection
         .find({ status: "Pending" })
         .toArray();
@@ -283,13 +318,13 @@ const run = async () => {
           }
         }
         const userResult = await userCollection.updateOne(userQuery, updatedDoc)
-        console.log(userResult.modifiedCount);
+        // console.log(userResult.modifiedCount);
       }
 
       res.send(result);
     });
 
-    app.get("/riders/active", async (req, res) => {
+    app.get("/riders/active", verifyFbToken, verifyAdmin, async (req, res) => {
       const result = await ridersCollection
         .find({ status: "active" })
         .toArray();
@@ -303,7 +338,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get("/riders/deactivated", async (req, res) => {
+    app.get("/riders/deactivated", verifyFbToken, verifyAdmin, async (req, res) => {
       const result = await ridersCollection
         .find({ status: "deactivate" })
         .toArray();
