@@ -38,6 +38,7 @@ const run = async () => {
     const trackingCollection = db.collection("tracking");
     const userCollection = db.collection("users");
     const ridersCollection = db.collection("riders");
+    const withdrawalCollection = db.collection("withdrawals");
 
     //custom middleware
 
@@ -68,7 +69,7 @@ const run = async () => {
       next();
     };
 
-     const verifyRider = async (req, res, next) => {
+    const verifyRider = async (req, res, next) => {
       const email = req.decoded.email;
       const user = await userCollection.findOne({ email });
 
@@ -185,20 +186,19 @@ const run = async () => {
       }
     );
 
-    app.patch('/parcels/:id/status', async(req,res) =>{
+    app.patch("/parcels/:id/status", async (req, res) => {
       const parcelId = req.params.id;
-      const {delivery_status} = req.body;
+      const { delivery_status } = req.body;
 
       const result = await parcelCollection.updateOne(
-        {_id: new ObjectId(parcelId)},
+        { _id: new ObjectId(parcelId) },
         {
-          $set:{delivery_status}
+          $set: { delivery_status },
         }
-      )
+      );
 
-      res.send(result)
-    })
-
+      res.send(result);
+    });
 
     app.patch("/parcel/:id/assigned", async (req, res) => {
       const parcelId = req.params.id;
@@ -211,11 +211,10 @@ const run = async () => {
             delivery_status: "Assigned to Rider",
             assigned_rider_id: riderId,
             assigned_rider_name: riderName,
-            assigned_rider_email: riderEmail
+            assigned_rider_email: riderEmail,
           },
         }
       );
-
 
       res.send({
         parcelModified: parcelUpdate.modifiedCount,
@@ -351,24 +350,24 @@ const run = async () => {
       res.send(pendingRiders);
     });
 
-    app.get('/rider/parcel', verifyFbToken, verifyRider, async(req, res) =>{
-        const email = req.query.email;
+    app.get("/rider/parcel", verifyFbToken, verifyRider, async (req, res) => {
+      const email = req.query.email;
 
-        if(!email){
-          return res.status(400).send({message:'Rider email is required'})
-        }
+      if (!email) {
+        return res.status(400).send({ message: "Rider email is required" });
+      }
 
-        const query = {
-          assigned_rider_email: email,
-          delivery_status: {$in: ['Assigned to Rider', 'In Transit']}
-        }
+      const query = {
+        assigned_rider_email: email,
+        delivery_status: { $in: ["Assigned to Rider", "In Transit"] },
+      };
 
-        const options ={
-          sort: {creation_date: -1}
-        }
-        const parcels = await parcelCollection.find(query, options).toArray()
-        res.send(parcels)
-    })
+      const options = {
+        sort: { creation_date: -1 },
+      };
+      const parcels = await parcelCollection.find(query, options).toArray();
+      res.send(parcels);
+    });
 
     app.patch("/riders/:id/status", async (req, res) => {
       const { id } = req.params;
@@ -430,24 +429,104 @@ const run = async () => {
       res.send(riders);
     });
 
-    app.get('/rider/completed-parcel', verifyFbToken, verifyRider, async (req, res) =>{
+    app.get(
+      "/rider/completed-parcel",
+      // verifyFbToken,
+      // verifyRider,
+      async (req, res) => {
+        const email = req.query.email;
+        if (!email) {
+          return res.status(400).send({ message: "Riders email is required" });
+        }
+
+        const query = {
+          assigned_rider_email: email,
+          delivery_status: "Delivered",
+        };
+
+        const options = {
+          sort: { creation_date: -1 },
+        };
+
+        const result = await parcelCollection.find(query, options).toArray();
+        res.send(result);
+      }
+    );
+
+    app.post(
+      "/rider/withdraw",
+      verifyFbToken,
+      verifyRider,
+      async (req, res) => {
+        const { riderEmail, amount, timestamp } = req.body;
+
+        if (!riderEmail || !amount) {
+          return res.status(400).send({ message: "missing data" });
+        }
+
+        const withdrawalData = {
+          riderEmail,
+          amount: parseFloat(amount),
+          timestamp: new Date(timestamp),
+          status: "pending",
+        };
+
+        const updateResult = await parcelCollection.updateMany(
+          {
+            assigned_rider_email: riderEmail,
+            delivery_status: "Delivered",
+            is_earning_cashed_out: { $ne: true },
+          },
+          {
+            $set: { is_earning_cashed_out: true },
+          }
+        );
+
+        const result = await withdrawalCollection.insertOne(withdrawalData);
+        res.send({
+          success: true,
+          insertedId: result.insertedId,
+          updatedParcels: updateResult.modifiedCount,
+        });
+      }
+    );
+
+    app.get("/rider/withdrawals", async (req, res) => {
       const email = req.query.email;
-      if(!email) {
-        return res.status(400).send({message: 'Riders email is required'})
-      }
+      const result = await withdrawalCollection
+        .find({ riderEmail: email })
+        .sort({ timestamp: -1 })
+        .toArray();
 
-      const query = {
-        assigned_rider_email: email,
-        delivery_status: 'Delivered'
-      }
+      res.send(result);
+    });
 
-      const options = {
-        sort :{creation_date: -1}
-      }
+    // admin api's
 
-      const result = await parcelCollection.find(query, options).toArray()
-      res.send(result)
-    })
+    app.get(
+      "/admin/withdrawals",
+      verifyFbToken,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await withdrawalCollection
+          .find({})
+          .sort({ timestamp: -1 })
+          .toArray();
+        res.send(result);
+      }
+    );
+
+    app.patch("/admin/withdrawals/:id/status", async (req, res) => {
+      const requestedId = req.params.id;
+      const { status } = req.body;
+
+      const result = await withdrawalCollection.updateOne(
+        { _id: new ObjectId(requestedId) },
+        { $set: { status } }
+      );
+
+      res.send({ success: true, message: "Withdrawal request status updated" });
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log("ping");
